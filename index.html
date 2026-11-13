@@ -1,0 +1,269 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KAI HEX TERMINAL</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#020805;color:#00ff77;font-family:monospace}
+header{padding:18px;background:#03150b;border-bottom:1px solid #087c3d}
+h1{margin:0;font-size:23px;text-shadow:0 0 12px #00ff77}
+small{color:#52bd7c}
+main{padding:12px;max-width:1200px;margin:auto}
+.panel{border:1px solid #087c3d;background:#031009;padding:12px;margin:10px 0;border-radius:7px;box-shadow:0 0 10px #003b20}
+h3{margin:0 0 12px;color:#00ff77}
+button,input,select{background:#001b0c;color:#00ff77;border:1px solid #087c3d;padding:10px;font:inherit;border-radius:4px;min-width:0}
+button{cursor:pointer}
+button:hover{background:#075027}
+input{width:100%;margin:4px 0}
+.controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+#terminal{height:115px;overflow:auto;color:#00ff77;white-space:pre-wrap;font-size:12px}
+#hex{overflow:auto;max-height:55vh;font-size:12px;line-height:1.8}
+.hexrow{display:grid;grid-template-columns:65px 1fr 100px;gap:8px;min-width:450px}
+.offset{color:#53a878}
+.bytes{color:#00ff77;word-break:break-all}
+.ascii{color:#a0ffbe;overflow:hidden}
+.byte{display:inline-block;cursor:pointer;padding:1px 3px;border-radius:2px}
+.byte:hover,.byte.selected{background:#087c3d;color:white}
+#status{color:#75d99a;font-size:12px}
+@media(min-width:700px){.controls{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<header>
+<h1>⌘ KAI HEX TERMINAL</h1>
+<small>BINARY INTELLIGENCE ENGINE // V4.0</small>
+</header>
+<main>
+<div class="panel">
+<h3>01 // FILE MANAGER</h3>
+<input type="file" id="file">
+<div class="controls">
+<button onclick="downloadFile()">EXPORT FILE</button>
+<button onclick="undo()">UNDO</button>
+<button onclick="redo()">REDO</button>
+<button onclick="resetFile()">RESET</button>
+</div>
+<p id="status">NO FILE LOADED</p>
+</div>
+
+<div class="panel">
+<h3>02 // HEX NAVIGATION</h3>
+<input id="jump" placeholder="Offset: 0x7148">
+<div class="controls">
+<button onclick="jumpTo()">GO TO OFFSET</button>
+<button onclick="renderHex()">REFRESH</button>
+</div>
+</div>
+
+<div class="panel">
+<h3>03 // SEARCH & REPLACE</h3>
+<input id="search" placeholder="Search HEX: 48 65 6C 6C 6F">
+<input id="replace" placeholder="Replace HEX: 41 42 43">
+<div class="controls">
+<button onclick="findBytes()">FIND NEXT</button>
+<button onclick="replaceBytes()">REPLACE ALL</button>
+</div>
+<p id="searchStatus"></p>
+</div>
+
+<div class="panel">
+<h3>04 // BYTE EDITOR</h3>
+<input id="editOffset" placeholder="Offset (hex), e.g. 0x10">
+<input id="editValue" placeholder="New byte: FF">
+<div class="controls">
+<button onclick="editByte()">WRITE BYTE</button>
+<button onclick="insertByte()">INSERT BYTE</button>
+<button onclick="deleteByte()">DELETE BYTE</button>
+</div>
+</div>
+
+<div class="panel">
+<h3>05 // DATA INSPECTOR</h3>
+<input id="inspectOffset" placeholder="Offset: 0">
+<div class="controls">
+<button onclick="inspect()">INSPECT</button>
+</div>
+<pre id="inspector">Waiting for data...</pre>
+</div>
+
+<div class="panel">
+<h3>06 // HEX VIEWER</h3>
+<div id="hex">Waiting for file...</div>
+</div>
+
+<div class="panel">
+<h3>07 // SYSTEM TERMINAL</h3>
+<div id="terminal">[SYS] KAI engine initialized
+[SYS] Binary parser ready
+[SYS] Waiting for file...</div>
+</div>
+</main>
+
+<script>
+let data=new Uint8Array(0);
+let original=new Uint8Array(0);
+let history=[];
+let future=[];
+let cursor=0;
+const $=id=>document.getElementById(id);
+function log(s){
+$('terminal').textContent+=' \n'+
+'[KAI] '+s;
+$('terminal').scrollTop=$('terminal').scrollHeight;
+}
+function parseOffset(v){
+let n=v.trim().toLowerCase();
+return n.startsWith('0x')?parseInt(n,16):parseInt(n,10);
+}
+function saveHistory(){
+history.push(data.slice());
+if(history.length>50)history.shift();
+future=[];
+}
+function updateStatus(){
+$('status').textContent=
+'SIZE: '+data.length+' BYTES | OFFSET: 0x'+data.length.toString(16).toUpperCase();
+}
+$('file').addEventListener('change',async e=>{
+let f=e.target.files[0];
+if(!f)return;
+data=new Uint8Array(await f.arrayBuffer());
+original=data.slice();
+history=[];future=[];
+renderHex();
+updateStatus();
+log('Loaded '+f.name);
+});
+function renderHex(){
+let html='';
+for(let i=0;i<data.length;i+=16){
+let chunk=data.slice(i,i+16);
+let bytes=Array.from(chunk,(b,j)=>
+'<span class="byte" data-offset="'+(i+j)+'">'+
+b.toString(16).padStart(2,'0').toUpperCase()+'</span>').join(' ');
+let ascii=Array.from(chunk,b=>
+b>=32&&b<=126?String.fromCharCode(b):'.').join('');
+html+='<div class="hexrow">'+
+'<span class="offset">'+i.toString(16).padStart(8,'0').toUpperCase()+'</span>'+
+'<span class="bytes">'+bytes+'</span>'+
+'<span class="ascii">'+ascii+'</span></div>';
+}
+$('hex').innerHTML=html||'EMPTY FILE';
+$('hex').querySelectorAll('.byte').forEach(el=>{
+el.onclick=()=>{
+let n=Number(el.dataset.offset);
+$('editOffset').value='0x'+n.toString(16);
+$('editValue').value=data[n].toString(16).padStart(2,'0').toUpperCase();
+};
+});
+updateStatus();
+}
+function editByte(){
+let n=parseOffset($('editOffset').value);
+let v=parseInt($('editValue').value,16);
+if(!Number.isInteger(n)||n<0||n>=data.length||!Number.isInteger(v)||v<0||v>255)return alert('Invalid offset or byte');
+saveHistory();data[n]=v;
+renderHex();log('Byte written at 0x'+n.toString(16));
+}
+function insertByte(){
+let n=parseOffset($('editOffset').value);
+let v=parseInt($('editValue').value,16);
+if(!Number.isInteger(n)||n<0||n>data.length||!Number.isInteger(v)||v<0||v>255)return alert('Invalid input');
+saveHistory();
+let next=new Uint8Array(data.length+1);
+next.set(data.slice(0,n));next[n]=v;next.set(data.slice(n),n+1);
+data=next;renderHex();log('Byte inserted');
+}
+function deleteByte(){
+let n=parseOffset($('editOffset').value);
+if(!Number.isInteger(n)||n<0||n>=data.length)return alert('Invalid offset');
+saveHistory();
+let next=new Uint8Array(data.length-1);
+next.set(data.slice(0,n));next.set(data.slice(n+1),n);
+data=next;renderHex();log('Byte deleted');
+}
+function undo(){
+if(!history.length)return;
+future.push(data.slice());data=history.pop();renderHex();log('Undo');
+}
+function redo(){
+if(!future.length)return;
+history.push(data.slice());data=future.pop();renderHex();log('Redo');
+}
+function resetFile(){
+if(!original.length)return;
+saveHistory();data=original.slice();renderHex();log('Original content restored');
+}
+function jumpTo(){
+let n=parseOffset($('jump').value);
+if(!Number.isInteger(n)||n<0||n>=data.length)return alert('Invalid offset');
+$('hex').scrollTop=Math.floor(n/16)*30;
+$('editOffset').value='0x'+n.toString(16);
+log('Jumped to 0x'+n.toString(16));
+}
+function pattern(v){
+let s=v.trim();
+if(!s)return null;
+if(/^[0-9a-fA-F\s]+$/.test(s)&&s.replace(/\s/g,'').length%2===0)
+return new Uint8Array(s.match(/[a-fA-F0-9]{2}/g).map(x=>parseInt(x,16)));
+return new TextEncoder().encode(s);
+}
+function findBytes(){
+let p=pattern($('search').value);
+if(!p||!p.length)return alert('Enter search pattern');
+let start=cursor;
+for(let i=start;i<=data.length-p.length;i++){
+let ok=true;
+for(let j=0;j<p.length;j++)if(data[i+j]!==p[j]){ok=false;break;}
+if(ok){
+cursor=i+1;
+$('searchStatus').textContent='FOUND AT 0x'+i.toString(16).toUpperCase();
+$('editOffset').value='0x'+i.toString(16);
+$('jump').value='0x'+i.toString(16);
+$('hex').scrollTop=Math.floor(i/16)*30;
+return;
+}
+}
+cursor=0;$('searchStatus').textContent='NOT FOUND';
+}
+function replaceBytes(){
+let p=pattern($('search').value),r=pattern($('replace').value);
+if(!p||!r||!p.length||p.length!==r.length)return alert('Patterns must have equal non-zero lengths');
+let positions=[];
+for(let i=0;i<=data.length-p.length;i++){
+let ok=true;
+for(let j=0;j<p.length;j++)if(data[i+j]!==p[j]){ok=false;break;}
+if(ok){positions.push(i);i+=p.length-1;}
+}
+if(!positions.length)return alert('No matches');
+saveHistory();
+for(let i of positions)data.set(r,i);
+renderHex();log('Replaced '+positions.length+' matches');
+}
+function inspect(){
+let n=parseOffset($('inspectOffset').value);
+if(!Number.isInteger(n)||n<0||n+8>data.length)return alert('Need at least 8 bytes');
+let v=new DataView(data.buffer,data.byteOffset+n,8);
+$('inspector').textContent=
+'OFFSET: 0x'+n.toString(16)+'\n'+
+'UINT8: '+data[n]+'\n'+
+'UINT16 LE: '+v.getUint16(0,true)+'\n'+
+'UINT32 LE: '+v.getUint32(0,true)+'\n'+
+'FLOAT32 LE: '+v.getFloat32(0,true)+'\n'+
+'FLOAT64 LE: '+v.getFloat64(0,true);
+}
+function downloadFile(){
+if(!data.length)return alert('No file loaded');
+let blob=new Blob([data],{type:'application/octet-stream'});
+let url=URL.createObjectURL(blob);
+let a=document.createElement('a');
+a.href=url;a.download='kai_modified.bin';a.click();
+URL.revokeObjectURL(url);
+log('Export complete');
+}
+</script>
+</body>
+</html>
